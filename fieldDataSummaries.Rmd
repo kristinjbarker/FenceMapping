@@ -1,0 +1,243 @@
+---
+title: "Fence inventory field data"
+author: "Kristin Barker"
+date: "2024-10-23"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+  # packages(list needed; install missing; load all)
+  packages <- c(
+    "lubridate", # datetimes
+    "cowplot", # muti-panel plotting
+    "sf", # tidy spatdat
+    "stringr", # cleaning names etc
+    "tidyverse") # life
+  ipak <- function(pkg){
+    new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+    if (length(new.pkg)) 
+      install.packages(new.pkg, dependencies = TRUE)
+    sapply(pkg, require, character.only = TRUE)
+  }    
+  ipak(packages) ; rm(ipak, packages)
+
+
+
+  # raw data (exported via Feature Class to Feature Class tool in ArcPro from fence group)
+  rawFences <- read_sf("../../Data/Fencemapping/fencelines.shp")
+  rawFeatures <- read_sf("../../Data/Fencemapping/fenceFeatures.shp")
+  rawWildlife <- read_sf("../../Data/Fencemapping/wildlifeObservations.shp")
+  rawRange <- read_sf("../../Data/Fencemapping/rangeImprovements.shp")
+  
+  # all names entered as data collectors (need cleaning)
+  rawCollectors <- sort(unique(c(rawFences$Collector_, 
+                                 rawFeatures$Collector_, 
+                                 rawWildlife$Collector_,
+                                 rawRange$Collector_)))
+  rawCollectors  
+
+  
+
+```
+
+## Fence inventory on the Absaroka Front
+
+Pretend this is a cute summary of the background and need
+
+## 
+```{r prep, echo = FALSE}
+
+
+## *Functions are specific to summer 2024 field season but are easily modified
+
+# Clean and standardize names of data collectors
+  clean_collector <- function(name) {
+    # Common typos/variations, IDed from unique() Collector_ in all datasets
+    if (str_detect(name, "lliso|bald|basin")) {
+      return("Allison Stoff") 
+    } else if (str_detect(name, "eth full")) {
+      return("Beth Fuller")
+    } else if (str_detect(name, "lemi|tristen|tristn")) {
+      return("Tristen Fleming")
+    } else if (str_detect(name, "hayden")) {
+      return("Hayden Campbell")
+    } else if (str_detect(name, "ean jeff")) {
+      return("Dean Jeffers")
+    } else if (str_detect(name, "bha")) {
+      return("Andrew Hahne")
+    } else if (str_detect(name, "^er$")) {
+      return("Emily Reed")
+    } else if (str_detect(name, "brut")) {
+      return("Jaden Brutsman")
+    } 
+    # Make names title case
+    return(str_to_title(name))
+  }
+
+
+# Match names to organizations
+clean_org <- function(name) {
+  if (str_detect(name, "Allison Stoff|Tristen Fleming|Hayden Campbell|Jaden Brutsman|KristinBarker")) {
+    return("BYLL")
+  } else if (str_detect(name, "Kimi")) {
+    return("TNC") 
+  } else if (str_detect(name, "Emily Reed")) {
+    return("AFI")
+  } else if (str_detect(name, "Andrew Hahne|Madison Clarke|Dean Jeffers")) {
+    return("BHA")
+  }
+  return("UnkOther")
+}
+
+
+```
+
+```{r clean, echo = FALSE}
+
+# fencelines
+datFences <- rawFences %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  # make names characters and make all lowercase for easier string matching
+  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
+  # remove anything collected on training day
+  filter(Date_of_Co != "2024-06-05") %>%
+  # clean and standardize names of collectors
+  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
+  # add organization name based on collector name
+  mutate(group = as.character(sapply(collector, clean_org))) %>%
+  # add field season
+  mutate(fieldSeason = ifelse(EditDate > "2024-06-05", "summer2024", NA),
+         withNewApp = ifelse(Editor == "shapiroPython", "no", "yes")) %>%
+  # combine standard and nonstandard wire heights
+  mutate(wireHeights = ifelse(Fence_Wire == "Other", Fence_Wi_1, Fence_Wire)) %>%
+  # make column names more intuitive
+  rename(fenceID = AFI_FenceI,
+         type = Fence_Mate,
+         material = Material_T,
+         numberWires = Num_Wires,
+         numberPoles = Num_Poles,
+         condition = Fence_Cond,
+         landowner = Land_Agenc,
+         WGFDregion = WGFD_Regio,
+         dateMapped = Date_of_Co,
+         dateAdded = CreationDa,
+         dateEdited = EditDate,
+         arcAccount = Editor,
+         access = Project_Ac,
+         urgency = Project_Ur,
+         status = Inventory_,
+         railtop = Railtop,
+         comments = Comments) %>%
+  # remove some extraneous columns
+  dplyr::select(fenceID, type, material, 
+                condition, status, urgency,
+                numberWires, wireHeights, railtop,
+                numberPoles, access, 
+                landowner, collector, group, dateMapped,
+                dateAdded, arcAccount, dateEdited,  
+                fieldSeason, withNewApp, Source, Creator,
+                WGFDregion, Fence_Type, Fence_Ty_1, GlobalID_1,
+                comments)
+
+# fence features
+datFeatures <- rawFeatures %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  # make names characters and make all lowercase for easier string matching
+  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
+  # remove anything collected on training day
+  filter(Date_of_Co != "2024-06-05") %>%
+  # clean and standardize names of collectors
+  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
+  # add organization name based on collector name
+  mutate(group = as.character(sapply(collector, clean_org)))
+
+# rangeland improvements
+datRange <- rawRange %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  # make names characters and make all lowercase for easier string matching
+  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
+  # remove anything collected on training day
+  filter(Date_of_Co != "2024-06-05") %>%
+  # clean and standardize names of collectors
+  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
+  # add organization name based on collector name
+  mutate(group = as.character(sapply(collector, clean_org)))
+
+# wildlife observations
+datWildlife <- rawWildlife %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  # make names characters and make all lowercase for easier string matching
+  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
+  # remove anything collected on training day
+  filter(Date_of_Co != "2024-06-05") %>%
+  # clean and standardize names of collectors
+  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
+  # add organization name based on collector name
+  mutate(group = as.character(sapply(collector, clean_org)))
+
+# sanity check
+unique(datFences$nameClean)
+unique(datFeatures$nameClean)
+unique(datRange$nameClean)
+unique(datWildlife$nameClean)
+sort(unique(c(datFences$nameClean, datFeatures$nameClean, datRange$nameClean, datWildlife$nameClean)))
+
+```
+
+```{r spatial}
+
+# create shapefiles 
+
+spatFences <- rawFences %>%
+  dplyr::select(GlobalID_1, geometry) %>%
+  inner_join(datFences) %>%
+  mutate(length_m = as.numeric(st_length(spatFences)))
+
+spatFence2024 <- spatFences %>%
+  filter(withNewApp == "yes")
+
+st_write(spatFences, "../../Data/Fencemapping/fencelines.shp")
+
+```
+
+## Quick n dirty summaries
+
+```{r summaries}
+
+
+
+# number of field days
+length(unique(spatFence2024$dateAdded))
+
+summ <- spatFence2024 %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  summarise("Meters mapped" = sum(length_m),
+            milesMapped = sum(length_m)*0.000621371,
+            fieldDays = length(unique(dateAdded)),
+            nUrgent = length(which(grepl("^T", spatFence2024$urgency))),
+            milesPerDay = milesMapped/fieldDays) %>%
+  gather() %>%
+  mutate(value = round(value, 1))
+
+summ
+
+
+
+```
+
+
+
+```{r playtime, eval = FALSE}
+
+# identify all names entered as data collectors
+rawCollectors <- sort(unique(c(rawFences$Collector_, rawFeatures$Collector_, rawWildlife$Collector_)))
+rawCollectors
+
+```

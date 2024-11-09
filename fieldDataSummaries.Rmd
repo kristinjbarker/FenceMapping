@@ -26,20 +26,18 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
   # raw data (exported via Feature Class to Feature Class tool in ArcPro from fence group)
-  rawFences <- read_sf("../../Data/Fencemapping/fencelines.shp")
-  rawFeatures <- read_sf("../../Data/Fencemapping/fenceFeatures.shp")
-  rawWildlife <- read_sf("../../Data/Fencemapping/wildlifeObservations.shp")
-  rawRange <- read_sf("../../Data/Fencemapping/rangeImprovements.shp")
+  rawFences <- read_sf("../../Data/Fencemapping/rawFencelines.shp")
+  rawFeatures <- read_sf("../../Data/Fencemapping/rawFenceFeatures.shp")
+  rawWildlife <- read_sf("../../Data/Fencemapping/rawWildlifeObservations.shp")
+  rawRange <- read_sf("../../Data/Fencemapping/rawRangeImprovements.shp")
+  rawUSFSall <- read_sf("../../Data/Fencemapping/SNFpasturesNW.shp")
+  rawUSFSmapped <- read_sf("../../Data/Fencemapping/SNFmappedOnly.shp")
   
   # all names entered as data collectors (need cleaning)
   rawCollectors <- sort(unique(c(rawFences$Collector_, 
                                  rawFeatures$Collector_, 
                                  rawWildlife$Collector_,
                                  rawRange$Collector_)))
-  rawCollectors  
-
-  
-
 ```
 
 ## Fence inventory on the Absaroka Front
@@ -54,7 +52,7 @@ Pretend this is a cute summary of the background and need
 
 # Clean and standardize names of data collectors
   clean_collector <- function(name) {
-    # Common typos/variations, IDed from unique() Collector_ in all datasets
+    # Common typos/variations, IDed from rawCollectors
     if (str_detect(name, "lliso|bald|basin")) {
       return("Allison Stoff") 
     } else if (str_detect(name, "eth full")) {
@@ -90,8 +88,6 @@ clean_org <- function(name) {
   }
   return("UnkOther")
 }
-
-
 ```
 
 ```{r clean, echo = FALSE}
@@ -180,37 +176,61 @@ datWildlife <- rawWildlife %>%
   mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
   # add organization name based on collector name
   mutate(group = as.character(sapply(collector, clean_org)))
-
-# sanity check
-unique(datFences$nameClean)
-unique(datFeatures$nameClean)
-unique(datRange$nameClean)
-unique(datWildlife$nameClean)
-sort(unique(c(datFences$nameClean, datFeatures$nameClean, datRange$nameClean, datWildlife$nameClean)))
-
 ```
 
-```{r spatial}
+```{r update spatial, include = FALSE}
 
 # create shapefiles 
 
+# all fences - with clean data including collectors etc
 spatFences <- rawFences %>%
   dplyr::select(GlobalID_1, geometry) %>%
-  inner_join(datFences) %>%
-  mutate(length_m = as.numeric(st_length(spatFences)))
+  inner_join(datFences) 
+spatFences$length_m <- as.numeric(st_length(spatFences))
 
+# all fences mapped during 2024 field season
 spatFence2024 <- spatFences %>%
   filter(withNewApp == "yes")
 
-st_write(spatFences, "../../Data/Fencemapping/fencelines.shp")
+# all SNF allotments near Basin
+fsAll <- rawUSFSall %>%
+  # match projection of fences mapped near Basin
+  st_transform(crs = st_crs(rawUSFSmapped)) %>%  
+  # make outlines rather than polygons
+  st_cast("MULTILINESTRING") %>%
+  # collapse into as few lines as possible
+  st_union()
+
+# mapped fences near Basin
+fsMap <- rawUSFSmapped %>%
+  st_cast("MULTILINESTRING") %>%
+  st_union()
+
+# unmapped fences
+
+  # buffer to within 100m of a mapped fence
+  fsBuff <- st_buffer(fsMap, dist = 100)
+  # find fences outside the buffer
+  fsRm <- st_difference(fsAll, fsBuff)
+  # calculate lengths
+  sum(st_length(fsRm))*0.000621371 # m to mi conversion
+  sum(st_length(fsRm))/1000 # km
+
+# area censused
+
+  # # buffer all mapped fences from this 2024 season
+  # area <- st_union(st_buffer(spatFence2024, 50))
+  # plot(area)
+  # area <- st_convex_hull(st_union(spatFence2024))
+  # plot(area)
+  # area <- st_zm(concaveman(spatFence2024, concavity = 1))
+  # plot(area)
+  # # forget it all this sucks i'm cavemanning it fr
 
 ```
 
 ## Quick n dirty summaries
-
 ```{r summaries}
-
-
 
 # number of field days
 length(unique(spatFence2024$dateAdded))
@@ -226,18 +246,87 @@ summ <- spatFence2024 %>%
   gather() %>%
   mutate(value = round(value, 1))
 
+summLand <-  spatFence2024 %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  group_by(landowner) %>%
+  summarise("Meters mapped" = sum(length_m),
+            milesMapped = sum(length_m)*0.000621371) 
+
+
 summ
 
 
 
 ```
 
+```{r exports, include = FALSE}
 
+# all fences currently in the database
+st_write(spatFences,
+         "../../Data/Fencemapping/fencelines.shp", append = FALSE)
+
+# all fences mapped this season
+st_write(spatFence2024,
+         "../../Data/Fencemapping/fencelines2024.shp", append = FALSE)
+
+# all fences UNmapped (check in arc)
+st_write(fsRm,
+         "../../Data/Fencemapping/fenceRemoved2024.shp", append = FALSE)
+
+# quick summary tables
+write.csv(summ, "summaryQuick.csv", row.names = F)
+write.csv(summLand, "summaryLandownership.csv", row.names = F)
+
+```
 
 ```{r playtime, eval = FALSE}
+
+#### FING USFS REMOVED ####
+
+matches <- st_intersects(fsAll, fsMap)
+matches
+
+matches <- st_is_within_distance(fsAll, fsMap, dist = 100)
+matches
+
+test <- fsAll[1][!matches,]
+plot(test)
+
 
 # identify all names entered as data collectors
 rawCollectors <- sort(unique(c(rawFences$Collector_, rawFeatures$Collector_, rawWildlife$Collector_)))
 rawCollectors
+
+# usfs fences around Basin (for determining length of fences deleted)
+spatUSFSall <- rawUSFSall %>% 
+  # match crs of field data
+  st_transform(crs = st_crs(rawUSFSmapped)) %>%
+  # make polygons into border lines
+  st_cast("MULTILINESTRING") 
+
+# usfs fences mapped around Basin
+spatUSFSmapped <- rawUSFSmapped %>%
+  # match object type of all usfs 
+  st_cast("MULTILINESTRING") 
+
+# usfs fences removed from database during field mapping season
+buffUSFSmapped <- st_buffer(spatUSFSmapped, dist = 100)
+
+
+spatUSFSdel <- st_difference(spatUSFSall, buffUSFSmapped)
+
+plot(spatUSFSdel[1])
+
+# try making it just one thing for simplicity
+fsAll <- fsAll[6]
+
+plot(fsAll[1], col = "black")
+
+any(!st_is_within_distance(fsAll, fsMap, dist = 100))
+any(is.null(fsAll))
+fsIn <- st_is_within_distance(fsAll, fsMap, dist = 1)
+plot(fsIn)
+summary(fsIn)
 
 ```

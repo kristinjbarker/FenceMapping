@@ -1,235 +1,129 @@
 ---
-title: "Fence inventory field data"
+title: "Absaroka Front fence inventory summary 2024"
 author: "Kristin Barker"
-date: "2024-10-23"
-output: html_document
+date: '`r format(Sys.time(), "%d %B %Y")`'
+output: 
+  pdf_document:
+    keep_tex: true # Optional, helpful for debugging
+header-includes:
+    - \usepackage{fancyhdr}
 ---
-
+\addtolength{\headheight}{0.3cm} 
+\pagestyle{fancyplain} 
+\chead{\includegraphics[height=2cm]{byll-header.png}} 
+\renewcommand{\headrulewidth}{0pt} 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(echo = TRUE)
 
-  # packages(list needed; install missing; load all)
-  packages <- c(
-    "lubridate", # datetimes
-    "cowplot", # muti-panel plotting
-    "sf", # tidy spatdat
-    "stringr", # cleaning names etc
-    "tidyverse") # life
-  ipak <- function(pkg){
-    new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
-    if (length(new.pkg)) 
-      install.packages(new.pkg, dependencies = TRUE)
-    sapply(pkg, require, character.only = TRUE)
-  }    
-  ipak(packages) ; rm(ipak, packages)
+# load, clean, and manipulate data
+source("01-load.R")
+source("02-function.R")
+source("03-clean.R")
+source("04-do.R")
 
-
-
-  # raw data (exported via Feature Class to Feature Class tool in ArcPro from fence group)
-  rawFences <- read_sf("../../Data/Fencemapping/rawFencelines.shp")
-  rawFeatures <- read_sf("../../Data/Fencemapping/rawFenceFeatures.shp")
-  rawWildlife <- read_sf("../../Data/Fencemapping/rawWildlifeObservations.shp")
-  rawRange <- read_sf("../../Data/Fencemapping/rawRangeImprovements.shp")
-  rawUSFSall <- read_sf("../../Data/Fencemapping/SNFpasturesNW.shp")
-  rawUSFSmapped <- read_sf("../../Data/Fencemapping/SNFmappedOnly.shp")
-  
-  # all names entered as data collectors (need cleaning)
-  rawCollectors <- sort(unique(c(rawFences$Collector_, 
-                                 rawFeatures$Collector_, 
-                                 rawWildlife$Collector_,
-                                 rawRange$Collector_)))
-```
-
-## Fence inventory on the Absaroka Front
-
-Pretend this is a cute summary of the background and need
-
-## 
-```{r prep, echo = FALSE}
-
-
-## *Functions are specific to summer 2024 field season but are easily modified
-
-# Clean and standardize names of data collectors
-  clean_collector <- function(name) {
-    # Common typos/variations, IDed from rawCollectors
-    if (str_detect(name, "lliso|bald|basin")) {
-      return("Allison Stoff") 
-    } else if (str_detect(name, "eth full")) {
-      return("Beth Fuller")
-    } else if (str_detect(name, "lemi|tristen|tristn")) {
-      return("Tristen Fleming")
-    } else if (str_detect(name, "hayden")) {
-      return("Hayden Campbell")
-    } else if (str_detect(name, "ean jeff")) {
-      return("Dean Jeffers")
-    } else if (str_detect(name, "bha")) {
-      return("Andrew Hahne")
-    } else if (str_detect(name, "^er$")) {
-      return("Emily Reed")
-    } else if (str_detect(name, "brut")) {
-      return("Jaden Brutsman")
-    } 
-    # Make names title case
-    return(str_to_title(name))
-  }
-
-
-# Match names to organizations
-clean_org <- function(name) {
-  if (str_detect(name, "Allison Stoff|Tristen Fleming|Hayden Campbell|Jaden Brutsman|KristinBarker")) {
-    return("BYLL")
-  } else if (str_detect(name, "Kimi")) {
-    return("TNC") 
-  } else if (str_detect(name, "Emily Reed")) {
-    return("AFI")
-  } else if (str_detect(name, "Andrew Hahne|Madison Clarke|Dean Jeffers")) {
-    return("BHA")
-  }
-  return("UnkOther")
-}
-```
-
-```{r clean, echo = FALSE}
-
-# fencelines
-datFences <- rawFences %>%
-  # remove spatial attributes
-  st_drop_geometry() %>%
-  # make names characters and make all lowercase for easier string matching
-  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
-  # remove anything collected on training day
-  filter(Date_of_Co != "2024-06-05") %>%
-  # clean and standardize names of collectors
-  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
-  # add organization name based on collector name
-  mutate(group = as.character(sapply(collector, clean_org))) %>%
-  # add field season
-  mutate(fieldSeason = ifelse(EditDate > "2024-06-05", "summer2024", NA),
-         withNewApp = ifelse(Editor == "shapiroPython", "no", "yes")) %>%
-  # combine standard and nonstandard wire heights
-  mutate(wireHeights = ifelse(Fence_Wire == "Other", Fence_Wi_1, Fence_Wire)) %>%
-  # make column names more intuitive
-  rename(fenceID = AFI_FenceI,
-         type = Fence_Mate,
-         material = Material_T,
-         numberWires = Num_Wires,
-         numberPoles = Num_Poles,
-         condition = Fence_Cond,
-         landowner = Land_Agenc,
-         WGFDregion = WGFD_Regio,
-         dateMapped = Date_of_Co,
-         dateAdded = CreationDa,
-         dateEdited = EditDate,
-         arcAccount = Editor,
-         access = Project_Ac,
-         urgency = Project_Ur,
-         status = Inventory_,
-         railtop = Railtop,
-         comments = Comments) %>%
-  # remove some extraneous columns
-  dplyr::select(fenceID, type, material, 
-                condition, status, urgency,
-                numberWires, wireHeights, railtop,
-                numberPoles, access, 
-                landowner, collector, group, dateMapped,
-                dateAdded, arcAccount, dateEdited,  
-                fieldSeason, withNewApp, Source, Creator,
-                WGFDregion, Fence_Type, Fence_Ty_1, GlobalID_1,
-                comments)
-
-# fence features
-datFeatures <- rawFeatures %>%
-  # remove spatial attributes
-  st_drop_geometry() %>%
-  # make names characters and make all lowercase for easier string matching
-  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
-  # remove anything collected on training day
-  filter(Date_of_Co != "2024-06-05") %>%
-  # clean and standardize names of collectors
-  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
-  # add organization name based on collector name
-  mutate(group = as.character(sapply(collector, clean_org)))
-
-# rangeland improvements
-datRange <- rawRange %>%
-  # remove spatial attributes
-  st_drop_geometry() %>%
-  # make names characters and make all lowercase for easier string matching
-  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
-  # remove anything collected on training day
-  filter(Date_of_Co != "2024-06-05") %>%
-  # clean and standardize names of collectors
-  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
-  # add organization name based on collector name
-  mutate(group = as.character(sapply(collector, clean_org)))
-
-# wildlife observations
-datWildlife <- rawWildlife %>%
-  # remove spatial attributes
-  st_drop_geometry() %>%
-  # make names characters and make all lowercase for easier string matching
-  mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
-  # remove anything collected on training day
-  filter(Date_of_Co != "2024-06-05") %>%
-  # clean and standardize names of collectors
-  mutate(collector = as.character(sapply(Collector_, clean_collector))) %>%
-  # add organization name based on collector name
-  mutate(group = as.character(sapply(collector, clean_org)))
-```
-
-```{r update spatial, include = FALSE}
-
-# create shapefiles 
-
-# all fences - with clean data including collectors etc
-spatFences <- rawFences %>%
-  dplyr::select(GlobalID_1, geometry) %>%
-  inner_join(datFences) 
-spatFences$length_m <- as.numeric(st_length(spatFences))
-
-# all fences mapped during 2024 field season
-spatFence2024 <- spatFences %>%
-  filter(withNewApp == "yes")
-
-# all SNF allotments near Basin
-fsAll <- rawUSFSall %>%
-  # match projection of fences mapped near Basin
-  st_transform(crs = st_crs(rawUSFSmapped)) %>%  
-  # make outlines rather than polygons
-  st_cast("MULTILINESTRING") %>%
-  # collapse into as few lines as possible
-  st_union()
-
-# mapped fences near Basin
-fsMap <- rawUSFSmapped %>%
-  st_cast("MULTILINESTRING") %>%
-  st_union()
-
-# unmapped fences
-
-  # buffer to within 100m of a mapped fence
-  fsBuff <- st_buffer(fsMap, dist = 100)
-  # find fences outside the buffer
-  fsRm <- st_difference(fsAll, fsBuff)
-  # calculate lengths
-  sum(st_length(fsRm))*0.000621371 # m to mi conversion
-  sum(st_length(fsRm))/1000 # km
-
-# area censused
-
-  # # buffer all mapped fences from this 2024 season
-  # area <- st_union(st_buffer(spatFence2024, 50))
-  # plot(area)
-  # area <- st_convex_hull(st_union(spatFence2024))
-  # plot(area)
-  # area <- st_zm(concaveman(spatFence2024, concavity = 1))
-  # plot(area)
-  # # forget it all this sucks i'm cavemanning it fr
+# make conversions straightforward
+MtoMI <- 0.000621371
+MtoKM <- 0.001
+acTOsqmi <- 0.0015625
 
 ```
 
-## Quick n dirty summaries
+# Overview
+
+Thousands of miles of fences crisscross wildlife migration corridors in the Greater Yellowstone Ecosystem (GYE). Fences can be important for managing livestock and natural resources, but they can also impede wildlife movement and sometimes even cause injury or death. Fence removal and modification projects are being prioritized by many management agencies and conservation groups, and there are currently unprecedented federal, state, and private resources available to support such work in wildlife corridors and seasonal ranges across the western United States. **However, the vast majority of fences have never been mapped.** Most fence locations and conditions are unknown. Without this information, it is extremely difficult to effectively plan and prioritize fence projects - putting practitioners at risk of spending substantial time, money, and effort on projects of relatively low value for wildlife and people.
+
+The Beyond Yellowstone Living Lab (BYLL) launched a field campaign in 2024 to help overcome this major obstacle, putting boots on the ground to map and measure fences in areas of particular importance to migratory elk, deer, pronghorn, and other wildlife. Our field crews record fence conditions, measure fence wire heights, take photos of damage, mark locations of braces and gates, and note area accessibility to directly inform fence removal and modification projects. They gather this information using a data collection app that links directly to a shared regional database and fence map, all of which were developed by our technical team to be easily accessed and used by our local conservation partners. 
+
+This report details the context and background of our work, describes the outcomes of our summer 2024 field season, and shares what we learned in our inaugural year. While focusing on supporting the work of our local partners, we designed the project to be scalable and portable to other areas, and much of what we have done and learned can be applied to fence mapping projects in other areas.
+
+# Context
+
+## Focal area and priority zones
+The Absaroka Front in the eastern GYE harbors some of the longest and most important migrations of elk, mule deer, pronghorn, and other species in the U.S., and has been prioritized by the U.S. Department of Agriculture and the State of Wyoming for the conservation of these resources. Fences are a particularly pervasive barrier for animals in the region, and groups like the Absaroka Fence Initiative (AFI) and Shoshone National Forest (SNF) are actively working on fence modification and removal projects to benefit migratory wildlife and improve habitat connectivity.
+
+Within this focal area, we worked with partners at the Shoshone National Forest (SNF), Bureau of Land Management (BLM), and the Nature Conservancy-Wyoming (TNC) to delineate the highest priority areas for on-the-ground fence mapping. BYLL team members and colleagues have been studying animal migration for years in the area, so we used GPS collar locations from deer, elk, and pronghorn to identify the highest-use areas on SNF and BLM lands that intersected areas with a suspected high density of fences. We then narrowed our priority focus to the zones in which our partners would be most likely to conduct on-the-ground fence work in upcoming years.
+
+```{r study area map, include = FALSE}
+
+
+```
+### Priority zone 1: Shoshone National Forest, Basin allotment
+Large herds of elk and mule deer migrate through the Shoshone National Park on their way to and from Yellowstone National Park and the surrounding areas. Much of SNF consists of remote, rugged, high elevation terrain, and there were less than XXX miles of fences mapped on the forest prior to 2024. We therefore structured our work around the mapped boundaries of grazing allotments and internal pastures. Our team focused on the large Basin allotment near the Sunshine Basin area with the goal of first censusing that area and then mapping surrounding areas as feasible. This allotment provides prticularly important calving habitat, critical winter range, and migratory corridors for the Clarks Fork elk and mule deer herds.
+```{r usfs map, include = FALSE}
+
+
+```
+### Priority zone 2: BLM Cody region, YU Bench and Oregon Basin areas
+The BLM-owned areas southeast of the town of Cody are home to the Carter Mountain Pronghorn, a remarkable herd with the highest elevation summer range of any known pronghorn in North America. The pronghorn spend their winters on these low-elevation BLM lands before navigating through the dense network of fences to get to their summer grazing pastures. Many of the fences in this area have already been mapped, but very few of them have ever been measured or walked in their entirety. Because pronghorn are especially vulnerable to fences given their delicate legs and preference for crossing underneath fences rather than jumping over them, knowing the heights of the bottom wires and the overall condition of fences would provide extremely helpful information to help AFI and BLM prioritize upcoming fence work.
+```{r blm map, include = FALSE}
+
+
+```
+
+## Field preparations
+To prepare for our inaugural field season, we first needed to:
+- Gather all existing fence location data from management agencies and conservation organizations
+  -Combine fence data from USFS, BLM, AFI, and Wyoming Game and Fish Department (WGFD) into a master database and shared map that all partners could access. We used an ESRI's ArcOnline collaboration for logistical purposes, but other platforms could also be used for this purpose.
+- Develop a fence data collection app that our team members, agency partners, conservation groups, and volunteers can use to inventory fences
+  - Identify information needed by each local partner; combine all needs into a final set of data fields
+  - Design a data collection app that allowed us to upload all required data to the shared database and map. We used ESRI's FieldMaps.
+  - Write app guide and host in-person field training with all local partners to ensure everyone felt comfortable accessing and updating the fence database with the new app 
+
+## Outcomes
+
+Since the project began, we have mapped more than 150 miles of fences and removed more than 300 miles of incorrectly mapped fences from the database and fence map. 
+
+```{r miles mapped, include = FALSE}
+
+summLand <-  spatFence2024 %>%
+  # remove spatial attributes
+  st_drop_geometry() %>%
+  group_by(landowner) %>%
+  summarise(metersMapped = sum(length_m),
+            milesMapped = sum(length_m)*MtoMI) %>%
+  mutate(Ownership = ifelse(grepl(landowner, pattern = "State"), "State",
+                           ifelse(landowner != "Bureau of Land Management" & 
+                               landowner != "Forest Service", "Other",
+                            landowner))) %>%
+  mutate(Ownership = reorder(Ownership, milesMapped)) %>%
+  mutate(workType = "Mapped")
+
+# add measure of deleted fences (FS only)
+del <- data.frame(landowner = "Forest Service",
+                    metersMapped = st_length(fsRm),
+                    milesMapped = st_length(fsRm)*MtoMI,
+                    Ownership = "Forest Service",
+                    workType = "Deleted")
+ownership <- rbind(summLand, del)
+
+ggplot(data = summLand, aes(Ownership, milesMapped)) +
+  geom_bar(stat = "identity") +
+  ylim(0,375) +
+  coord_flip()
+ggplot(data = ownership, aes(Ownership, milesMapped, fill = workType)) +
+  geom_bar(stat = "identity") +
+  ylim(0,375) +  
+  coord_flip()
+
+
+
+```
+
+All told, crew members largely censused more than 400 square miles of USFS and BLM land. 
+```{r area, include = FALSE}
+
+# YLOH
+# see Claude code for a starting point
+# idea being to dissolve into 2 or three polygons to manually deal with the diff areas
+# if that doesn't work, fuck it
+# do it manually in arc (aGAIN because it fucked up the first time)
+
+
+
+```
+
+Across these areas, our field investigations revealed more than 27 miles of fences that were in urgent need of repair, modification, or removal because they were endangering animals or impeding their movement.
+
+
 ```{r summaries}
 
 # number of field days
@@ -246,12 +140,7 @@ summ <- spatFence2024 %>%
   gather() %>%
   mutate(value = round(value, 1))
 
-summLand <-  spatFence2024 %>%
-  # remove spatial attributes
-  st_drop_geometry() %>%
-  group_by(landowner) %>%
-  summarise("Meters mapped" = sum(length_m),
-            milesMapped = sum(length_m)*0.000621371) 
+
 
 
 summ
@@ -260,73 +149,75 @@ summ
 
 ```
 
-```{r exports, include = FALSE}
+# Looking forward
 
-# all fences currently in the database
-st_write(spatFences,
-         "../../Data/Fencemapping/fencelines.shp", append = FALSE)
+<!-- Benefits to wildlife also extend beyond the animals in our study area. The new data we collect will be used to help advance scientific understanding of how fences affect ungulate movement and population dynamics. Our researchers at BYP and UWY plan to use the data to evaluate the impacts of different fence types on wildlife movement and habitat connectivity (e.g., woven wire vs. barbed wire fences). We can also combine our ungulate GPS location data with the new fence data to determine whether we can detect fences from wildlife movement data. Even more broadly, we are partnering with Microsoft AI for Good to provide accurate fence location data that can help train a computer algorithm to identify fences from satellite imagery. -->
 
-# all fences mapped this season
-st_write(spatFence2024,
-         "../../Data/Fencemapping/fencelines2024.shp", append = FALSE)
+<!-- We hope to conduct another field season in summer 2025, building on this initial investment and lessons learned to map fences in other important wildlife areas even more efficiently and effectively. We are also preparing reports and maps of our field data to share with our partners at the Shoshone National Forest and Absaroka Fence Initiative to inform their upcoming rangeland improvement and fence modification projects. We have provided data to AFI for use in a proposal for funding that would allow them to modify or remove dozens of miles of fences in key ungulate winter range and migration areas on BLM land. -->
 
-# all fences UNmapped (check in arc)
-st_write(fsRm,
-         "../../Data/Fencemapping/fenceRemoved2024.shp", append = FALSE)
+<!-- More broadly, this project provides a foundation that can easily be expanded outside the current study area to support wildlife-friendly fence work across Wyoming and beyond, due to our work developing a freely-available fence data collection app, online mapping tools, and comprehensive database. -->
 
-# quick summary tables
-write.csv(summ, "summaryQuick.csv", row.names = F)
-write.csv(summLand, "summaryLandownership.csv", row.names = F)
-
-```
-
-```{r playtime, eval = FALSE}
-
-#### FING USFS REMOVED ####
-
-matches <- st_intersects(fsAll, fsMap)
-matches
-
-matches <- st_is_within_distance(fsAll, fsMap, dist = 100)
-matches
-
-test <- fsAll[1][!matches,]
-plot(test)
+<!-- Because this project represents the first step of what will likely be a multi-year journey, we look forward to steadily evaluating and refining our work as we gain experience. By the end of this field season, we will have developed and documented solid training strategies, field methods, app logistics, and database protocols that will inform and improve our future work.  -->
 
 
-# identify all names entered as data collectors
-rawCollectors <- sort(unique(c(rawFences$Collector_, rawFeatures$Collector_, rawWildlife$Collector_)))
-rawCollectors
+<!-- # Acknowledgements -->
+<!-- * Field crew! -->
 
-# usfs fences around Basin (for determining length of fences deleted)
-spatUSFSall <- rawUSFSall %>% 
-  # match crs of field data
-  st_transform(crs = st_crs(rawUSFSmapped)) %>%
-  # make polygons into border lines
-  st_cast("MULTILINESTRING") 
+<!-- ## Funders -->
 
-# usfs fences mapped around Basin
-spatUSFSmapped <- rawUSFSmapped %>%
-  # match object type of all usfs 
-  st_cast("MULTILINESTRING") 
+<!-- ## Partners -->
 
-# usfs fences removed from database during field mapping season
-buffUSFSmapped <- st_buffer(spatUSFSmapped, dist = 100)
+<!-- ## Data/map access -->
 
 
-spatUSFSdel <- st_difference(spatUSFSall, buffUSFSmapped)
 
-plot(spatUSFSdel[1])
 
-# try making it just one thing for simplicity
-fsAll <- fsAll[6]
+<!-- # **CUTS DELETE ME ** -->
 
-plot(fsAll[1], col = "black")
+<!-- Because fences can impede animal movement and sometimes even cause injury or death (Photo 3), it is a high priority for natural resource managers and conservationists to modify fences for easier wildlife passage and to remove fences that are no longer needed. However, the majority of the fences on the Absaroka Front have never been mapped. Most fence locations and conditions are unknown, especially in the remote areas that are particularly important for elk birthing, calf rearing, and migration. This lack of information makes it extremely challenging for conservation groups to plan fence projects, putting them at risk of spending substantial time, money, and labor on projects of relatively low value for wildlife and people. -->
 
-any(!st_is_within_distance(fsAll, fsMap, dist = 100))
-any(is.null(fsAll))
-fsIn <- st_is_within_distance(fsAll, fsMap, dist = 1)
-plot(fsIn)
-summary(fsIn)
+<!-- there are now unprecedented federal, state and private resources for the conservation and restoration of wildlife corridors and seasonal ranges in the western United States, and i -->
 
-```
+<!-- While directly informing on-the-ground management and conservation work in our focal area, this project is scalable and readily portable to other areas. -->
+
+<!-- This information is readily available to all partners; data are collected with an app we designed  -->
+
+<!-- They collect this information in a map and shared database using a data collection app -->
+
+<!-- The data collection app we designed for this purpose While moving work forward in our focal region, this project is readily scalable and  T -->
+
+<!-- While focusing primarily on supporting local partners, we designed this project with an eye towards scalability and portability,  -->
+<!-- to be readily scalable and portable to other areas, and we hope it is useful at both the local and regional level.  -->
+
+
+<!-- Fences are important for managing livestock and natural resources, but they can also impede the movement of migratory ungulates like elk, deer, and pronghorn (Xu 2021). In the Greater Yellowstone Ecosystem (GYE), there are at least 10,000 miles of fences on the winter ranges of elk alone (Gigliotti 2022). Navigating these fences can be challenging, especially for winter-stressed animals, and some attempted fence crossings lead to injury or even death (e.g., Fig. 1).  -->
+
+<!-- Many management agencies and conservation groups wish to modify or remove fences to improve landscape connectivity while supporting rangeland management This work requires knowing where fences are located across the landscape, what types of fences are there, and what condition those fences are in. Unfortunately, this information doesn’t often exist - and it is particularly lacking on the remote public lands that provide important seasonal habitat for migratory ungulates. Inventorying fences is time- and resource-intensive, and most organizations lack the capacity to add such work to their already-full plates.  -->
+
+
+<!-- The Absaroka Front of northwestern Wyoming harbors some of the longest and most important migrations of elk, mule deer, pronghorn, and other species in the U.S. One of the most important things we can do for these wildlife is reduce the barriers to their movements.  with elk winter ranges in the Greater Yellowstone Ecosystem bisected by more than 16,000 miles of fences. -->
+
+<!-- Our group, the Beyond Yellowstone Program (BYP), is working alongside the US Forest Service (USFS), Absaroka Fence Initiative (AFI), and University of Wyoming (UWY) to inventory and map fences in the eastern GYE. Along with our partners at the Bureau of Land Management, Wyoming Game and Fish, The Nature Conservancy, and the Greater Yellowstone Coalition, we aim to create a publicly available master database of fences covering much of the ungulate habitat across the Absaroka Front. The project will benefit wildlife by providing practical information that directly informs on-the-ground fence work. AFI will use our inventory data to identify high-priority fences for wildlife friendly modification as well as identifying obsolete fences that can be removed, and USFS will use it to identify areas where fence management would assist with range improvement projects. -->
+
+
+
+<!-- The Absaroka Front is bisected by an enormous number of fences – up to several thousand miles -->
+<!-- of them. These were installed years ago to delineate property boundaries and assist with livestock -->
+<!-- management. Fence removal and modification are now being prioritized by many management -->
+<!-- and conservation partners, including the US Forest Service, National Resources Conservation -->
+<!-- Service, Bureau of Land Management, Wyoming Game and Fish Department, The Nature -->
+<!-- Conservancy, Greater Yellowstone Coalition, and Absaroka Fence Initiative (AFI). AFI has -->
+<!-- repeatedly asked us to overlay animal movement information with fence information to identify -->
+<!-- priorities, strengthen funding proposals, and guide on-the-ground work. However, the majority -->
+<!-- of the fences have never been mapped. Most fence locations and conditions are unknown. -->
+<!-- In the absence of this information, the conservation partners on the Absaroka Front are at -->
+<!-- a disadvantage competing for resources, and could spend substantial time, money, and -->
+<!-- labor on projects of relatively low value for wildlife and people. -->
+
+<!--  led by the Shoshone National Forest, Bureau of Land Management, and Absaroka Fence Initiative. Our overarching objective is to develop and maintain a -->
+
+
+<!-- # Project overview -->
+
+<!-- ## Inventory area -->
+<!-- Our work focuses on the Absaroka Front in the eastern GYE, which has been identified by the state of Wyoming and the US Department of Agriculture as a high priority area for migratory ungulate conservation. Within this priority area, our focal areas for fence inventory are the portions of the Shoshone National Forest that comprise high-use ungulate habitat. These areas primarily occur within Park County west of Cody, Wyoming. We plan to initially focus our efforts in the Clarks Fork/Sunlight Basin area, especially the Basin allotment (see attached Project Area Map). This area is particularly important because it supports -->

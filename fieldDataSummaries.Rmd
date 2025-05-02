@@ -20,10 +20,16 @@ source("02-function.R")
 source("03-clean.R")
 source("04-do.R")
 
+# add manual shp of area covered
+area <- st_read("../../Data/Fencemapping/areaCensused.shp")
+
 # make conversions straightforward
 MtoMI <- 0.000621371
 MtoKM <- 0.001
 acTOsqmi <- 0.0015625
+SQMItoAC <- 640
+SQMtoSQMI <- 3.86102e-7
+
 
 ```
 
@@ -74,82 +80,131 @@ Since the project began, we have mapped more than 150 miles of fences and remove
 
 ```{r miles mapped, include = FALSE}
 
-summLand <-  spatFence2024 %>%
+summLand <-  spatFences2024 %>%
   # remove spatial attributes
   st_drop_geometry() %>%
   group_by(landowner) %>%
-  summarise(metersMapped = sum(length_m),
-            milesMapped = sum(length_m)*MtoMI) %>%
-  mutate(Ownership = ifelse(grepl(landowner, pattern = "State"), "State",
-                           ifelse(landowner != "Bureau of Land Management" & 
-                               landowner != "Forest Service", "Other",
-                            landowner))) %>%
-  mutate(Ownership = reorder(Ownership, milesMapped)) %>%
+  summarise(metersMapped = sum(lgthMeters),
+            milesMapped = sum(lgthMeters)*MtoMI,
+            nDays = length(unique(dateMapped))) %>%
+  mutate(Ownership = reorder(landowner, milesMapped)) %>%
   mutate(workType = "Mapped")
 
 # add measure of deleted fences (FS only)
 del <- data.frame(landowner = "Forest Service",
-                    metersMapped = st_length(fsRm),
-                    milesMapped = st_length(fsRm)*MtoMI,
-                    Ownership = "Forest Service",
-                    workType = "Deleted")
+                  metersMapped = st_length(fsRm),
+                  milesMapped = st_length(fsRm)*MtoMI,
+                  nDays = NA,
+                  Ownership = "Forest Service",
+                  workType = "Deleted")
 ownership <- rbind(summLand, del)
 
-ggplot(data = summLand, aes(Ownership, milesMapped)) +
-  geom_bar(stat = "identity") +
-  ylim(0,375) +
-  coord_flip()
+# miles mapped per landownership
+ggplot(data = summLand, aes(Ownership, milesMapped, fill = Ownership)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  coord_flip() 
+
+# miles mapped AND REMOVED per landownership 
 ggplot(data = ownership, aes(Ownership, milesMapped, fill = workType)) +
   geom_bar(stat = "identity") +
   ylim(0,375) +  
   coord_flip()
 
+# miles mapped on same scale as the mapped and removed plot
+ggplot(data = summLand, aes(Ownership, milesMapped)) +
+  geom_bar(stat = "identity") +
+  ylim(0,375) +
+  coord_flip()
+
 
 
 ```
 
-All told, crew members largely censused more than 400 square miles of USFS and BLM land. 
+
+
+```{r fielddays, include = FALSE}
+
+
+
+
+
+```
+
+
+All told, crew members largely censused more than 500 square miles of USFS and BLM land. 
 ```{r area, include = FALSE}
-
-# YLOH
-# see Claude code for a starting point
-# idea being to dissolve into 2 or three polygons to manually deal with the diff areas
-# if that doesn't work, fuck it
-# do it manually in arc (aGAIN because it fucked up the first time)
-
-
+st_area(area)
+sum(st_area(area))*SQMtoSQMI
 
 ```
 
 Across these areas, our field investigations revealed more than 27 miles of fences that were in urgent need of repair, modification, or removal because they were endangering animals or impeding their movement.
 
+# By the numbers
 
 ```{r summaries}
 
-# number of field days
-length(unique(spatFence2024$dateAdded))
+# see list in spiral dot p54 
 
-summ <- spatFence2024 %>%
-  # remove spatial attributes
-  st_drop_geometry() %>%
-  summarise("Meters mapped" = sum(length_m),
-            milesMapped = sum(length_m)*0.000621371,
-            fieldDays = length(unique(dateAdded)),
-            nUrgent = length(which(grepl("^T", spatFence2024$urgency))),
-            milesPerDay = milesMapped/fieldDays) %>%
-  gather() %>%
-  mutate(value = round(value, 1))
+numbers <- datFences2024 %>%
+  summarise(nTechs = length(unique(collector)) - 1, # bc NAs
+            nDays = length(unique(dateMapped)),
+            nOrgs = length(unique(group))) %>%
+  mutate(nBraces = length(which(datFeatures$Feature_Ty == "Brace")),
+         nGates = length(which(datFeatures$Feature_Ty == "Gate")),
+         nWlCrossings = length(which(datWildlife$Wildlife_S == "Crossing")),
+         nMorts = length(which(datWildlife$Wildlife_S == "Carcass")),
+         nTanks = length(which(datRange$Type == "Stock tank")),
+         nPoly = length(which(datRange$Type == "Polypipe")),
+         miMapped = sum(summLand$milesMapped),
+         miUnmapped = del$milesMapped) %>%
+  mutate_all(function(x) as.numeric(x))
+
+numLong <- pivot_longer(numbers, cols = names(numbers))
+
+numLong
 
 
 
 
-summ
+```
+
+```{r playtime, include=FALSE}
+
+# wtf is all this state land 
+
+state <- spatFences2024 %>%
+  filter(landowner == grepl(landowner, pattern = "State"))
+plot(state)
+
+# days worked per landownership (more similar than i thought)
+usfs <- filter(datFences2024, Ownership == "Forest Service")
+blm <- filter(datFences2024, Ownership == "Bureau of Land Management")
+length(unique(usfs$dateEdited))
+length(unique(blm$dateMapped))
 
 
 
 ```
 
 # Looking forward
+
+Planning for next year
+- Identifying target areas
+  - Where projects are most likely to happen on the ground
+  - Wildlife importance - in winter/migration/summer range for 1+ spp
+  - Local knowledge sources to find fences we're missing?
+  - Private lands considerations??
+  
+- Increasing efficiency
+  - Start at low elevations and move high
+  - Identify areas where horse packing is most cost effective
+  - Get starlink?
+  - Secure more convenient and affordable housing, or primarily camp
+  - Have one or more "all hands" field days to demolish BLM - late June?
+
+
+# zMisc
 
 <!-- Benefits to wildlife also extend beyond the animals in our study area. The new data we collect will be used to help advance scientific understanding of how fences affect ungulate movement and population dynamics. Our researchers at BYP and UWY plan to use the data to evaluate the impacts of different fence types on wildlife movement and habitat connectivity (e.g., woven wire vs. barbed wire fences). We can also combine our ungulate GPS location data with the new fence data to determine whether we can detect fences from wildlife movement data. Even more broadly, we are partnering with Microsoft AI for Good to provide accurate fence location data that can help train a computer algorithm to identify fences from satellite imagery. -->
 

@@ -24,6 +24,9 @@ rawRange <- read_sf("../../Data/Fencemapping/rawRangeImprovements.shp")
 rawUSFSall <- read_sf("../../Data/Fencemapping/SNFpasturesNW.shp")
 rawUSFSmapped <- read_sf("../../Data/Fencemapping/SNFmappedOnly.shp")
 
+# match crs
+rawUSFSall <- st_transform(rawUSFSall, st_crs(rawFences))
+
 # all names entered as data collectors (need cleaning)
 rawCollectors <- sort(unique(c(rawFences$Collector_, 
                                rawFeatures$Collector_, 

@@ -17,6 +17,7 @@ ipak(packages) ; rm(ipak, packages)
 
 
 # raw data (exported via Feature Class to Feature Class tool in ArcPro from fence group)
+# rawFences <- read_sf("../../Data/Fencemapping/rawFencelines.shp")
 rawFences <- read_sf("../../Data/Fencemapping/rawFencelines.shp")
 rawFeatures <- read_sf("../../Data/Fencemapping/rawFenceFeatures.shp")
 rawWildlife <- read_sf("../../Data/Fencemapping/rawWildlifeObservations.shp")

@@ -18,6 +18,7 @@ ipak(packages) ; rm(ipak, packages)
 
 # fencelines
 spatFences <- rawFences %>%
+  # remove fences being mappe
   # make names characters and make all lowercase for easier string matching
   mutate(Collector_ = ifelse(is.na(Collector_), "NA", tolower(Collector_))) %>%
   # remove anything collected on training day
@@ -30,6 +31,13 @@ spatFences <- rawFences %>%
   mutate(group = ifelse(collector == "Na" & 
                           grepl(Editor, pattern = "cal"), "BYLL", 
                         ifelse(collector == "Na", "AFI", group))) %>%
+  
+  
+  ####### YLOH #######
+# see nb, need to use diff criteria to pull out 2025 data and keep 2024 data clean
+  
+  
+  
   # add field season
   mutate(fieldSeason = ifelse(EditDate > "2024-06-05", "summer2024", NA),
          withNewApp = ifelse(Editor == "shapiroPython", "no", "yes")) %>%
@@ -41,8 +49,7 @@ spatFences <- rawFences %>%
   rename(fenceID = AFI_FenceI,
          type = Fence_Mate,
          material = Material_T,
-         numberWires = Num_Wires,
-         numberPoles = Num_Poles,
+         numberWires = Num_WireOr,
          condition = Fence_Cond,
          landowner = Land_Agenc,
          WGFDregion = WGFD_Regio,
@@ -59,12 +66,12 @@ spatFences <- rawFences %>%
   dplyr::select(fenceID, type, material, 
                 condition, status, urgency,
                 numberWires, wireHeights, railtop,
-                numberPoles, access, 
+                access, 
                 landowner, collector, group, dateMapped,
                 dateAdded, arcAccount, dateEdited,  
                 fieldSeason, withNewApp, 
                 lgthMeters, Source, Creator,
-                WGFDregion, Fence_Type, Fence_Ty_1, GlobalID_1,
+                WGFDregion, GlobalID_1,
                 comments)
 # also store in nonspatial dataframe
 datFences <- st_drop_geometry(spatFences)
@@ -111,8 +118,20 @@ datWildlife <- st_drop_geometry(spatWildlife)
 
 # # create shapefiles
 
-# all fences mapped during 2024 field season
-spatFences2024 <- spatFences %>%
+# # all fences mapped during 2024 field season
+# spatFences2024 <- spatFences %>%
+#   filter(withNewApp == "yes") %>%
+#   # add generic landownership (usf/blm/other)
+#   mutate(Ownership = ifelse(grepl(landowner, pattern = "Game"), "Forest Service", # WGFD is in SNF
+#                             # state borders BLM
+#                             ifelse(grepl(landowner, pattern = "State"), "Bureau of Land Management",
+#                                    ifelse(landowner != "Bureau of Land Management" & 
+#                                             landowner != "Forest Service", "Other",
+#                                           landowner))))   
+# datFences2024 <- st_drop_geometry(spatFences2024)
+
+# all fences mapped during 2024-5 field seasons
+spatFences_2025 <- spatFences %>%
   filter(withNewApp == "yes") %>%
   # add generic landownership (usf/blm/other)
   mutate(Ownership = ifelse(grepl(landowner, pattern = "Game"), "Forest Service", # WGFD is in SNF
@@ -121,7 +140,7 @@ spatFences2024 <- spatFences %>%
                                    ifelse(landowner != "Bureau of Land Management" & 
                                             landowner != "Forest Service", "Other",
                                           landowner))))   
-datFences2024 <- st_drop_geometry(spatFences2024)
+datFences_2025 <- st_drop_geometry(spatFences_2025)
 
 # all SNF allotments near Basin
 fsAll <- rawUSFSall %>%

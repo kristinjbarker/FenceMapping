@@ -1,3 +1,21 @@
+#### quick calcs before season end 2025 ####
+
+# subset to just this year 
+dat <- rawFences[which(year(rawFences$CreationDa) == 2025 & rawFences$CreationDa > "2025-05-28"),] %>%
+  mutate(lgthMeters = as.numeric(st_length(.)),
+         lgthMiles = as.numeric(st_length(.)*0.0006213712))
+# meters to miles
+sum(dat$lgthMeters)*0.0006213712
+length(which(is.na(dat$Collector_)))
+sum(dat$lgthMiles)
+
+dat2 <- rawFences[which(year(rawFences$EditDate) == 2025 & rawFences$EditDate > "2025-05-28"),]
+
+
+###################################### ## 
+#############    2024 ##################
+###################################### ##
+
 #### FING USFS REMOVED ####
 
 matches <- st_intersects(fsAll, fsMap)
